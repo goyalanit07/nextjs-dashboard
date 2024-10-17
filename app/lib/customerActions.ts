@@ -1,19 +1,31 @@
 'use server';
 
+import { promises as fs } from 'node:fs';
+import path from 'path';
 import { z } from 'zod';
 import { sql } from '@vercel/postgres';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+// Ensure the upload directory exists
+const uploadDir = path.join(process.cwd(), 'public/customers');
+await fs.mkdir(uploadDir, { recursive: true });
+
 const FormSchema = z.object({
     id: z.string(),
     name: z.string({
-        invalid_type_error: 'Please enter name of customer.',
+        invalid_type_error: 'Please enter the name of the customer.',
     })
         .min(3, { message: "Must be 3 or more characters long" }),
     email: z.coerce
         .string()
         .email({ message: 'Please enter a valid email address.' }),
+    image: z
+        .instanceof(File)
+        .refine(file => file.size <= 5 * 1024 * 1024, {
+            message: "Image must be less than 5MB",
+        }),
+
     date: z.string(),
 });
 
@@ -23,38 +35,47 @@ export type State = {
     errors?: {
         name?: string[];
         email?: string[];
+        image?: string[];
     };
     message?: string | null;
 };
 
 export async function createCustomer(prevState: State, formData: FormData) {
 
-    // Validate form fields using Zod
-    const validatedFields = CreateCustomer.safeParse({
-        name: formData.get('name'),
-        email: formData.get('email'),
-    });
+    const name = formData.get('name');
+    const email = formData.get('email');
+    const image = formData.get('image') as File;
 
-    // If form validation fails, return errors early. Otherwise, continue.
+    const validatedFields = CreateCustomer.safeParse({ name, email, image });
+
     if (!validatedFields.success) {
         return {
             errors: validatedFields.error.flatten().fieldErrors,
-            message: 'Missing Fields. Failed to Create Customer.',
+            message: 'Validation Failed. Please provide valid data.',
         };
     }
 
-    // Prepare data for insertion into the database
-    const { name, email } = validatedFields.data;
-
     try {
+        const imageFileName = `${Date.now()}-${image.name}`;
+        const imagePath = path.join(uploadDir, imageFileName);
+
+        const arrayBuffer = await image.arrayBuffer();
+        const buffer = new Uint8Array(arrayBuffer);
+
+        await fs.writeFile(imagePath, buffer);
+
+        const imageUrl = `/customers/${imageFileName}`;
+        
+        const { name: validName, email: validEmail } = validatedFields.data;
+        
         await sql`
-      INSERT INTO customers (name, email, image_url)
-      VALUES (${name}, ${email}, '/customers/evil-rabbit.png')
-    `;
+            INSERT INTO customers (name, email, image_url)
+            VALUES (${validName}, ${validEmail}, ${imageUrl})
+        `;
+
     } catch (error) {
-        return {
-            message: 'Database Error: Failed to Create Invoice.',
-        };
+        console.error('Error creating customer:', error);
+        return { message: 'Database Error: Failed to Create Customer.' };
     }
 
     revalidatePath('/dashboard/customers');
