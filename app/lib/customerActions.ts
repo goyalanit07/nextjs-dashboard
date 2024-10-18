@@ -7,8 +7,10 @@ import { sql } from '@vercel/postgres';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+const isProduction = true;
+const uploadDir = isProduction ? '/tmp/customers' : path.join(process.cwd(), 'public/customers');
+
 // Ensure the upload directory exists
-const uploadDir = path.join(process.cwd(), 'public/customers');
 await fs.mkdir(uploadDir, { recursive: true });
 
 const FormSchema = z.object({
@@ -56,6 +58,8 @@ export async function createCustomer(prevState: State, formData: FormData) {
     }
 
     try {
+        console.log("UploadDir-------------------", {uploadDir});
+        
         const imageFileName = `${Date.now()}-${image.name}`;
         const imagePath = path.join(uploadDir, imageFileName);
 
@@ -66,12 +70,12 @@ export async function createCustomer(prevState: State, formData: FormData) {
 
         const imageUrl = `/customers/${imageFileName}`;
         
-        const { name: validName, email: validEmail } = validatedFields.data;
+        // const { name: validName, email: validEmail } = validatedFields.data;
         
-        await sql`
-            INSERT INTO customers (name, email, image_url)
-            VALUES (${validName}, ${validEmail}, ${imageUrl})
-        `;
+        // await sql`
+        //     INSERT INTO customers (name, email, image_url)
+        //     VALUES (${validName}, ${validEmail}, ${imageUrl})
+        // `;
 
     } catch (error) {
         console.error('Error creating customer:', error);
